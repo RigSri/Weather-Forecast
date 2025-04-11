@@ -1,1 +1,265 @@
+#%% Imports
+import pandas as pd
+import numpy as np
+import os
+import time
+from tqdm import tqdm
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error, confusion_matrix
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+import joblib
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import r2_score
 
+#%% Configuration
+N_ESTIMATORS = 50  # Medium epoch count for balanced performance
+
+# ✅ File Paths (unchanged)
+FILE_PATHS = {
+    'city_attributes': r"C:\Users\hsv16\Desktop\hackathon 10x\city_attributes.csv",
+    'temperature': r"C:\Users\hsv16\Desktop\hackathon 10x\temperature.csv",
+    'humidity': r"C:\Users\hsv16\Desktop\hackathon 10x\humidity.csv",
+    'pressure': r"C:\Users\hsv16\Desktop\hackathon 10x\pressure.csv",
+    'wind_speed': r"C:\Users\hsv16\Desktop\hackathon 10x\wind_speed.csv",
+    'wind_direction': r"C:\Users\hsv16\Desktop\hackathon 10x\wind_direction.csv",
+    'weather_description': r"C:\Users\hsv16\Desktop\hackathon 10x\weather_description.csv"
+}
+
+#%% Data Loading and Merging (unchanged)
+def load_and_merge_data(max_rows=5000):
+    """Load and merge datasets with limit per file"""
+    print("🌍 Loading city attributes...")
+    cities = pd.read_csv(FILE_PATHS['city_attributes'])
+
+    if 'city' not in cities.columns:
+        raise KeyError("'city' column missing in city attributes file")
+
+    metric_files = {
+        'temperature': FILE_PATHS['temperature'],
+        'humidity': FILE_PATHS['humidity'],
+        'pressure': FILE_PATHS['pressure'],
+        'wind_speed': FILE_PATHS['wind_speed'],
+        'wind_direction': FILE_PATHS['wind_direction'],
+        'weather_condition': FILE_PATHS['weather_description']
+    }
+
+    dfs = []
+    print("\n📂 Loading metric files (limited to 5000 rows each):")
+    for metric, path in tqdm(metric_files.items(), desc="Processing"):
+        df = pd.read_csv(path, nrows=max_rows)  # ⛔ LIMIT rows
+        if 'datetime' not in df.columns:
+            raise KeyError(f"'datetime' column missing in {path}")
+        df_melted = df.melt(
+            id_vars=['datetime'],
+            var_name='city',
+            value_name=metric
+        )
+        dfs.append(df_melted)
+
+    print("\n🔗 Merging metrics:")
+    with tqdm(total=len(dfs)-1, desc="Merging") as pbar:
+        merged = dfs[0]
+        for df in dfs[1:]:
+            merged = pd.merge(merged, df, on=['datetime', 'city'], how='inner')
+            pbar.update(1)
+
+    if 'city' not in merged.columns:
+        raise KeyError("'city' column missing after merge")
+
+    return pd.merge(merged, cities, on='city')
+
+#%% Feature Engineering (unchanged)
+def create_features(df):
+    df = df.copy()
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    df = df.sort_values(['city', 'datetime'])
+
+    # Time features
+    df['hour'] = df['datetime'].dt.hour
+    df['day_of_week'] = df['datetime'].dt.dayofweek
+    df['month'] = df['datetime'].dt.month
+
+    # Targets
+    df['next_temp'] = df.groupby('city')['temperature'].shift(-1)
+    df['next_humidity'] = df.groupby('city')['humidity'].shift(-1)
+    df['next_wind_speed'] = df.groupby('city')['wind_speed'].shift(-1)
+
+    # Drop last row of each group to avoid NaNs
+    df = df.groupby('city').apply(lambda x: x.iloc[:-1]).reset_index(drop=True)
+    return df.dropna()
+
+#%% Model Builder (unchanged)
+def build_model():
+    features = [
+        'hour', 'day_of_week', 'month',
+        'Latitude', 'Longitude',
+        'temperature', 'humidity',
+        'wind_speed', 'wind_direction',
+        'pressure', 'weather_condition'
+    ]
+    targets = ['next_temp', 'next_humidity', 'next_wind_speed']
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('cat', OneHotEncoder(handle_unknown='ignore'), ['weather_condition'])
+        ],
+        remainder='passthrough'
+    )
+
+    model = Pipeline([
+        ('preprocessor', preprocessor),
+        ('regressor', RandomForestRegressor(
+            n_estimators=1,  # will increment manually
+            warm_start=True,
+            random_state=42,
+            n_jobs=-1
+        ))
+    ])
+    return model, features, targets
+
+#%% Visualization Functions (NEW)
+def plot_confusion_matrix(y_true, y_pred, target_name):
+    """Plot confusion matrix for classification tasks"""
+    # Convert to classes for confusion matrix
+    y_true_class = pd.cut(y_true, bins=5, labels=False)
+    y_pred_class = pd.cut(y_pred, bins=5, labels=False)
+    
+    plt.figure(figsize=(8, 6))
+    cm = confusion_matrix(y_true_class, y_pred_class)
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.title(f'Confusion Matrix for {target_name}')
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.show()
+
+def plot_feature_importance(model, feature_names):
+    """Plot feature importance from Random Forest"""
+    try:
+        importances = model.named_steps['regressor'].feature_importances_
+        indices = np.argsort(importances)[::-1]
+        
+        plt.figure(figsize=(12, 8))
+        plt.title("Feature Importance")
+        plt.bar(range(len(indices)), importances[indices], align='center')
+        plt.xticks(range(len(indices)), [feature_names[i] for i in indices], rotation=90)
+        plt.tight_layout()
+        plt.show()
+    except Exception as e:
+        print(f"⚠️ Could not plot feature importance: {e}")
+
+def plot_prediction_vs_actual(y_true, y_pred, target_name):
+    """Scatter plot of predicted vs actual values"""
+    plt.figure(figsize=(8, 6))
+    plt.scatter(y_true, y_pred, alpha=0.3)
+    plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 'k--')
+    plt.xlabel('Actual')
+    plt.ylabel('Predicted')
+    plt.title(f'Actual vs Predicted {target_name}')
+    plt.show()
+
+#%% Model Training (updated with visualizations)
+def train_model():
+    print("\n⚙️ Loading & preparing data...")
+    df = load_and_merge_data()
+    processed_df = create_features(df)
+
+    if processed_df.empty:
+        raise ValueError("❌ No usable data after feature engineering")
+
+    print("\n✂️ Splitting train/test by city...")
+    train_dfs, test_dfs = [], []
+    for city in tqdm(processed_df['city'].unique(), desc="Cities"):
+        city_data = processed_df[processed_df['city'] == city].sort_values('datetime')
+        split_idx = int(0.7 * len(city_data))
+        train_dfs.append(city_data.iloc[:split_idx])
+        test_dfs.append(city_data.iloc[split_idx:])
+
+    train_df = pd.concat(train_dfs)
+    test_df = pd.concat(test_dfs)
+
+    model, features, targets = build_model()
+    X_train, y_train = train_df[features], train_df[targets]
+    X_test, y_test = test_df[features], test_df[targets]
+
+    print("\n🌲 Training Random Forest (⏱ Timed):")
+    start_time = time.time()
+    model.named_steps['regressor'].set_params(n_estimators=1)
+
+    with tqdm(total=N_ESTIMATORS, desc="Trees trained") as pbar:
+        for i in range(1, N_ESTIMATORS + 1):
+            model.named_steps['regressor'].set_params(n_estimators=i)
+            model.fit(X_train, y_train)
+            pbar.update(1)
+
+    end_time = time.time()
+    print(f"✅ Training completed in {end_time - start_time:.2f} seconds")
+
+    print("\n📊 Model Evaluation:")
+    evaluate_model(model, X_test, y_test)
+
+    # Generate visualizations
+    print("\n📈 Generating visualizations...")
+    preds = model.predict(X_test)
+    
+    for i, target in enumerate(targets):
+        print(f"\n📊 Evaluation for {target}:")
+        plot_prediction_vs_actual(y_test.iloc[:, i], preds[:, i], target)
+        plot_confusion_matrix(y_test.iloc[:, i], preds[:, i], target)
+        
+        # Calculate R-squared
+        r2 = r2_score(y_test.iloc[:, i], preds[:, i])
+        print(f"R-squared score: {r2:.3f}")
+
+    # Plot feature importance
+    try:
+        feature_names = model.named_steps['preprocessor'].get_feature_names_out()
+        plot_feature_importance(model, feature_names)
+    except Exception as e:
+        print(f"⚠️ Feature importance plot failed: {e}")
+
+    joblib.dump(model, 'weather_model.pk2')
+    print("✅ Model saved as 'weather_model.pk2'")
+    return model, processed_df, features
+
+#%% Evaluation (updated)
+def evaluate_model(model, X_test, y_test):
+    preds = model.predict(X_test)
+    for i, target in enumerate(y_test.columns):
+        mae = mean_absolute_error(y_test.iloc[:, i], preds[:, i])
+        rmse = np.sqrt(mean_squared_error(y_test.iloc[:, i], preds[:, i]))
+        r2 = r2_score(y_test.iloc[:, i], preds[:, i])
+        print(f"{target}:")
+        print(f"MAE = {mae:.2f}, RMSE = {rmse:.2f}, R² = {r2:.3f}")
+
+#%% Prediction Example (unchanged)
+def predict_example(model, df, features, city='New York'):
+    city_data = df[df['city'] == city].sort_values('datetime')
+    if city_data.empty:
+        print(f"⚠️ No data found for city '{city}'")
+        return {}
+
+    latest = city_data.iloc[-1][features]
+    prediction = model.predict(pd.DataFrame([latest]))[0]
+
+    return {
+        'next_hour_temp': prediction[0],
+        'next_hour_humidity': prediction[1],
+        'next_hour_wind_speed': prediction[2]
+    }
+
+#%% Main Execution (unchanged)
+if __name__ == "__main__":
+    print("🚀 Weather Forecasting ML Pipeline Started")
+    try:
+        trained_model, processed_df, model_features = train_model()
+        sample_pred = predict_example(trained_model, processed_df, model_features, city='New York')
+
+        print("\n🔮 Forecast for Next Hour (New York):")
+        for k, v in sample_pred.items():
+            print(f"{k.replace('_', ' ').title():<25}: {v:.2f}")
+    except Exception as e:
+        print(f"❌ Pipeline failed: {e}")
