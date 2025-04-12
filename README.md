@@ -164,7 +164,15 @@ model = joblib.load('weather_model.pkl')
 prediction = model.predict(pd.DataFrame(current_data))[0]
 
 8️⃣(Optional) Connect to OpenWeatherMap API for Live Data🖼️
-def get_current_weather(city):
-url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid=API_KEY&units=metric"
-return requests.get(url).json()
+import requests
+
+def get_current_weather(city, api_key):
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
+    response = requests.get(url)
+    return response.json()
+
+# Example usage:
+API_KEY = "your_real_api_key_here"
+weather_data = get_current_weather("Paris", API_KEY)
+print(weather_data)
 
