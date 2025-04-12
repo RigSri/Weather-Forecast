@@ -166,13 +166,13 @@ prediction = model.predict(pd.DataFrame(current_data))[0]
 8️⃣(Optional) Connect to OpenWeatherMap API for Live Data🖼️
 import requests
 
-def get_current_weather(city, api_key):
-    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
-    response = requests.get(url)
+def get_current_weather(city, api_key):<br>
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"<br>
+    response = requests.get(url)<br>
     return response.json()
 
 # Example usage:
-API_KEY = "your_real_api_key_here"
-weather_data = get_current_weather("Paris", API_KEY)
+API_KEY = "your_real_api_key_here"<br>
+weather_data = get_current_weather("Paris", API_KEY)<br>
 print(weather_data)
 
