@@ -47,9 +47,9 @@ merged_data = merge(temperature, humidity, pressure...)
 🌞 Month: Summer vs Winter patterns  
 📅 Day of Week: Weekend pollution changes?
 
-# Convert "2023-07-15 14:00" to:
-hour = 14  (2PM)
-month = 7  (July)
+# Convert "2023-07-15 14:00" to:<br>
+hour = 14  (2PM)<br>
+month = 7  (July)<br>
 day_of_week = 5  (Saturday)
 
 3️⃣ The Prediction Trick  
