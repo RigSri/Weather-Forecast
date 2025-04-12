@@ -124,7 +124,7 @@ Next Hour Forecast for Paris:
 -Automated retraining pipelines using Apache Airflow
 -Mobile dashboard built using Supabase
 
-**>>🔁 Steps to Replicate & Evaluate the Model<<**
+**>>🔁 Steps to Replicate & Evaluate the Model<<** <br>
 1️⃣Download the Dataset
 >Get the Historical Hourly Weather Data from Kaggle:
 https://www.kaggle.com/datasets/selfishgene/historical-hourly-weather-data🌡️
